@@ -1,0 +1,117 @@
+use crate::ast::{Expression, Operator, Value};
+
+grammar;
+
+Location<V>: Value<V> = {
+    <s:@L> <value:V> <e:@R> => Value::new(s, e, value),
+}
+
+NUM: String = r"[0-9][_0-9]*" => <>.to_string();
+DEC: String = r"[0-9][_0-9]*\.(?:[0-9][_0-9]*)?" => <>.to_string();
+FLOAT: String = r"[0-9][_0-9]*(?:\.(?:[0-9][_0-9]*)?)?f" => <>.to_string();
+OPERATOR: String = r"`[\^\*/%\+\-!#=<>\|&\$@]+`" => <>.to_string();
+ATOM: String = r":[\p{Letter}](?:[\p{Letter}_]+)?" => <>.to_string();
+IDENTIFIER: String = r"[\p{Letter}_]+" => <>.to_string();
+
+Literal: Expression = {
+    Location<NUM> => Expression::Num(<>),
+    Location<DEC> => Expression::Dec(<>),
+    Location<FLOAT> => Expression::Float(<>),
+    Location<OPERATOR> => Expression::Operator(<>),
+    Location<ATOM> => Expression::Atom(<>),
+    Location<IDENTIFIER> => Expression::Identifier(<>),
+}
+
+LeftBindingTier<Op, Rhs>: Expression = {
+    <s:@L> <lhs:LeftBindingTier<Op, Rhs>> <op:Op> <rhs:Rhs> <e:@R> => {
+        Expression::BinOp(Value::new(s, e, (Box::new(lhs), op, Box::new(rhs))))
+    },
+
+    Rhs,
+}
+
+RightBindingTier<Op, Lhs>: Expression  = {
+    <s:@L> <lhs:Lhs> <op:Op> <rhs:RightBindingTier<Op, Lhs>> <e:@R> => {
+        Expression::BinOp(Value::new(s, e, (Box::new(lhs), op, Box::new(rhs))))
+    },
+
+    Lhs,
+}
+
+Terminal_expression: Expression = {
+    Literal,
+    "(" <Expression> ")",
+    Block_expression,
+}
+
+POWER: String = r"\^" => <>.to_string();
+LEVEL_4_CUSTOM: String = r"\^[\^\*/%\+\-!#=<>\|&\$@]+" => <>.to_string();
+
+Level_4_operator: Operator = {
+    Location<POWER> => Operator::Power(<>),
+    Location<LEVEL_4_CUSTOM> => Operator::Custom(<>),
+}
+
+Level_4_expression = RightBindingTier<Level_4_operator, Terminal_expression>;
+
+MULTIPLICATION: String = r"\*" => <>.to_string();
+DIVISION: String = r"/" => <>.to_string();
+MODULO: String = r"%" => <>.to_string();
+LEVEL_3_CUSTOM: String = r"[\*/%][\^\*/%\+\-!#=<>\|&\$@]+" => <>.to_string();
+
+Level_3_operator: Operator = {
+    Location<MULTIPLICATION> => Operator::Multiplication(<>),
+    Location<DIVISION> => Operator::Division(<>),
+    Location<MODULO> => Operator::Modulo(<>),
+    Location<LEVEL_3_CUSTOM> => Operator::Custom(<>),
+}
+
+Level_3_expression = LeftBindingTier<Level_3_operator, Level_4_expression>;
+
+ADDITION: String = r"\+" => <>.to_string();
+SUBTRACTION: String = r"\-" => <>.to_string();
+LEVEL_2_CUSTOM: String = r"[\+\-][\^\*/%\+\-!#=<>\|&\$@]+" => <>.to_string();
+
+Level_2_operator: Operator = {
+    Location<ADDITION> => Operator::Addition(<>),
+    Location<SUBTRACTION> => Operator::Subtraction(<>),
+    Location<LEVEL_2_CUSTOM> => Operator::Custom(<>),
+}
+
+Level_2_expression = LeftBindingTier<Level_2_operator, Level_3_expression>;
+
+LEVEL_1_CUSTOM: String = r"[~#@][\^\*/%\+\-!#=<>\|&\$@]+" => <>.to_string();
+
+Level_1_operator: Operator = {
+    Location<LEVEL_1_CUSTOM> => Operator::Custom(<>),
+}
+
+Level_1_expression = RightBindingTier<Level_1_operator, Level_2_expression>;
+
+EQUAL: String = r"=" => <>.to_string();
+LT: String = r"<" => <>.to_string();
+GT: String = r">" => <>.to_string();
+LEVEL_0_CUSTOM: String = r"[=<>\|&\$][\^\*/%\+\-!#=<>\|&\$@]+" => <>.to_string();
+
+Level_0_operator: Operator = {
+    Location<EQUAL> => Operator::Equal(<>),
+    Location<LT> => Operator::Lt(<>),
+    Location<GT> => Operator::Gt(<>),
+    Location<LEVEL_0_CUSTOM> => Operator::Custom(<>),
+}
+
+Level_0_expression = LeftBindingTier<Level_0_operator, Level_1_expression>;
+
+pub Expression = Level_0_expression;
+
+If_statement: Expression = {
+    <s:@L> "if" <predicate:Expression> "then" <expression:Expression> "end" <e:@R> =>
+        Expression::IfStatement(Value::new(s, e, (Box::new(predicate), Box::new(expression)))),
+
+    <s:@L> "if" <predicate:Expression> "then" <then_:Expression> "else" <else_:Expression> "end" <e:@R> =>
+        Expression::IfElseStatement(Value::new(s, e, (Box::new(predicate), Box::new(then_), Box::new(else_)))),
+}
+
+Block_expression: Expression = {
+    If_statement,
+}
